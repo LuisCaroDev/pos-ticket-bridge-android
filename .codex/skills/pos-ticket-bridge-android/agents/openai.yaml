@@ -1,0 +1,4 @@
+interface:
+  display_name: "POS Ticket Bridge Android"
+  short_description: "Aplica la arquitectura nativa del bridge Android."
+  default_prompt: "Implementa esta tarea respetando la arquitectura nativa de POS Ticket Bridge Android."

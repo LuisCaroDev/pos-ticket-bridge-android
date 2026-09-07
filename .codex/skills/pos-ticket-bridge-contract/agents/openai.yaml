@@ -1,0 +1,4 @@
+interface:
+  display_name: "Contrato POS Ticket Bridge"
+  short_description: "Conserva compatibilidad con el bridge desktop."
+  default_prompt: "Implementa o revisa el contrato HTTP manteniendo compatibilidad con POS Ticket Bridge desktop."
