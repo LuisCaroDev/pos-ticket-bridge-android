@@ -1,6 +1,6 @@
 package com.luiscarodev.posticketbridge.contract
 
-import com.luiscarodev.posticketbridge.domain.MockPrinter
+import com.luiscarodev.posticketbridge.domain.PrinterSummary
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -9,6 +9,8 @@ const val BRIDGE_VERSION = "1.0.0"
 val BridgeJson = Json {
     encodeDefaults = true
     explicitNulls = false
+    ignoreUnknownKeys = true
+    classDiscriminator = "type"
 }
 
 @Serializable
@@ -16,7 +18,7 @@ data class HealthResponse(
     val ok: Boolean = true,
     val version: String = BRIDGE_VERSION,
     val suggestedHosts: List<String>,
-    val printers: List<MockPrinter>,
+    val printers: List<PrinterSummary>,
 )
 
 @Serializable

@@ -7,9 +7,12 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.decodeFromJsonElement
 
 sealed interface PrintRequestValidation {
-    data class Valid(val printerId: String) : PrintRequestValidation
+    data class Valid(val request: PrintRequest) : PrintRequestValidation {
+        val printerId: String get() = request.printerId
+    }
     data object Invalid : PrintRequestValidation
 }
 
@@ -22,7 +25,9 @@ object PrintRequestValidator {
             ?: return PrintRequestValidation.Invalid
         val job = root["job"] as? JsonObject ?: return PrintRequestValidation.Invalid
         if (!validJob(job)) return PrintRequestValidation.Invalid
-        return PrintRequestValidation.Valid(printerId)
+        val request = runCatching { BridgeJson.decodeFromJsonElement<PrintRequest>(root) }.getOrNull()
+            ?: return PrintRequestValidation.Invalid
+        return PrintRequestValidation.Valid(request)
     }
 
     private fun validJob(job: JsonObject): Boolean {

@@ -29,9 +29,45 @@ Si esa ruta no está disponible, usar fixtures Android versionados y documentar 
 - Si Android no implementa una capacidad, conservar la forma de la ruta y devolver un error estable de soportado/no soportado, no un payload específico de plataforma.
 - Añadir campos de respuesta sólo si los clientes anteriores pueden ignorarlos. Un cambio incompatible necesita aprobación explícita y una versión o endpoint nuevo.
 
+### Alcance implementado de impresión V1
+
+- Se implementan las cuatro rutas consumidas actualmente por Ventysfy POS:
+  `GET /health`, `POST /print`, `POST /open-drawer` y
+  `POST /test/:printerId`.
+- `/health` anuncia las impresoras persistidas en Room con la forma pública
+  `{ id, nombre, tipo }`.
+- Los IDs publicados se generan al crear desde el nombre con la normalización y
+  sufijos de unicidad del desktop. No son una entrada editable en Android y no
+  cambian al renombrar una impresora existente.
+- Las otras tres rutas validan token e identidad y realizan impresión física
+  síncrona por TCP, Bluetooth Classic o Android USB Host. `/health` conserva
+  `{ id, nombre, tipo }` y publica `tipo: "usb"` como desktop.
+- Los bloqueos nativos se conservan en el mismo envelope y se distinguen como
+  `local_network_permission_required`, `bluetooth_permission_required` o
+  `usb_permission_required`; no se solicita permiso desde una petición HTTP.
+- `/print` valida el contrato completo `PrintJobV1`, incluidos los nueve tipos
+  de bloque. El bloque `text` conserva su rechazo de campos desconocidos; los
+  objetos que Zod acepta de forma no estricta conservan esa tolerancia.
+- CORS admite solicitudes sin `Origin`, refleja únicamente localhost del bridge
+  u orígenes persistidos por el usuario, y permite preflight sin token.
+- Los orígenes configurables se validan como orígenes base `http` o `https`, sin
+  credenciales, ruta, query ni fragmento; se normalizan y deduplican antes de
+  persistir. La representación en DataStore y el comportamiento HTTP existente
+  no cambian.
+- Status/configuración/diagnósticos/CRUD/descubrimiento HTTP permanecen
+  aplazados; el CRUD de impresoras sólo está disponible en la app Android.
+- V1 no persiste trabajos ni aplica idempotencia durable a `jobId`.
+- `/test/:printerId` y la prueba de una configuración sin guardar usan el mismo
+  ticket de prueba que desktop. Android añade únicamente la línea centrada
+  `mobile` debajo del encabezado.
+
 ### Evidencia contractual
 
 - Mantener fixtures JSON independientes del lenguaje para peticiones válidas, inválidas y respuestas representativas.
+- Mantener una captura ESC/POS generada por desktop para comprobar byte a byte
+  los bloques nativos de recibo con XPrinter XP-E260L en español. El texto
+  compatible con CP858, incluidas las tildes, debe permanecer nativo y no usar
+  el fallback raster.
 - Probar exactamente método, ruta, headers, status, campos, ausencia/null y discriminadores.
 - Ejecutar los mismos fixtures contra Kotlin y, cuando sea práctico, contra desktop.
 

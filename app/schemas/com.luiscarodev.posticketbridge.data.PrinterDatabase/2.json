@@ -1,0 +1,139 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "48ceabf559e411742fcac6df90e84f15",
+    "entities": [
+      {
+        "tableName": "printers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `type` TEXT NOT NULL, `widthMm` INTEGER NOT NULL, `opensDrawer` INTEGER NOT NULL, `enabled` INTEGER NOT NULL, `profileId` TEXT NOT NULL, `profileMode` TEXT NOT NULL, `profileLanguage` TEXT NOT NULL, `customEncoding` TEXT, `customCodeTable` INTEGER, `customUnicodeFallback` TEXT, `customNativePolicy` TEXT, `host` TEXT, `port` INTEGER, `bluetoothAddress` TEXT, `bluetoothName` TEXT, `usbVendorId` INTEGER, `usbProductId` INTEGER, `usbSerialNumber` TEXT, `usbName` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "widthMm",
+            "columnName": "widthMm",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "opensDrawer",
+            "columnName": "opensDrawer",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileMode",
+            "columnName": "profileMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileLanguage",
+            "columnName": "profileLanguage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customEncoding",
+            "columnName": "customEncoding",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "customCodeTable",
+            "columnName": "customCodeTable",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "customUnicodeFallback",
+            "columnName": "customUnicodeFallback",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "customNativePolicy",
+            "columnName": "customNativePolicy",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "host",
+            "columnName": "host",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "port",
+            "columnName": "port",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "bluetoothAddress",
+            "columnName": "bluetoothAddress",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "bluetoothName",
+            "columnName": "bluetoothName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "usbVendorId",
+            "columnName": "usbVendorId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "usbProductId",
+            "columnName": "usbProductId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "usbSerialNumber",
+            "columnName": "usbSerialNumber",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "usbName",
+            "columnName": "usbName",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '48ceabf559e411742fcac6df90e84f15')"
+    ]
+  }
+}

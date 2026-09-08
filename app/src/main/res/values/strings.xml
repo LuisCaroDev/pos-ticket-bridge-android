@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">POS Ticket Bridge</string>
+    <string name="bridge_notification_channel">Bridge HTTP</string>
+    <string name="bridge_starting">Iniciando bridge…</string>
+    <string name="bridge_running">Bridge activo en el puerto %1$d</string>
+    <string name="bridge_failed">No se pudo iniciar el bridge</string>
 </resources>

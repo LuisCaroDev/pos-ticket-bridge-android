@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.luiscarodev.posticketbridge.domain.AllowedOrigin
 import java.security.SecureRandom
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -37,8 +38,10 @@ class BridgeSettingsRepository(private val context: Context) {
         return settings.first()
     }
 
-    suspend fun saveAllowedOrigins(raw: String): BridgeSettings {
-        val normalized = normalizeOrigins(raw.lineSequence().toList())
+    suspend fun saveAllowedOrigins(origins: List<String>): BridgeSettings {
+        val normalized = origins.map { origin ->
+            AllowedOrigin.normalizeOrNull(origin) ?: error("invalid_origin")
+        }.distinct()
         context.bridgeDataStore.edit { preferences ->
             preferences[Keys.allowedOrigins] = normalized.joinToString("\n")
             if (preferences[Keys.token].isNullOrBlank()) {

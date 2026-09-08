@@ -9,7 +9,10 @@ import com.luiscarodev.posticketbridge.contract.PrintRequestValidation
 import com.luiscarodev.posticketbridge.contract.PrintRequestValidator
 import com.luiscarodev.posticketbridge.contract.TestResponse
 import com.luiscarodev.posticketbridge.data.BridgeSettings
-import com.luiscarodev.posticketbridge.domain.MockPrinterCatalog
+import com.luiscarodev.posticketbridge.domain.PrinterCatalog
+import com.luiscarodev.posticketbridge.domain.summary
+import com.luiscarodev.posticketbridge.printing.BridgeOperationException
+import com.luiscarodev.posticketbridge.printing.BridgePrinterOperations
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
@@ -17,8 +20,10 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
+import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
-import io.ktor.server.engine.ApplicationEngine
+import io.ktor.server.cio.CIOApplicationEngine
+import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.request.header
@@ -33,13 +38,17 @@ import java.security.MessageDigest
 
 private const val MAX_REQUEST_CHARS = 1_000_000
 
-class KtorBridgeHttpServer(private val settings: BridgeSettings) : BridgeHttpServer {
-    private var engine: ApplicationEngine? = null
+class KtorBridgeHttpServer(
+    private val settings: BridgeSettings,
+    private val printers: PrinterCatalog,
+    private val operations: BridgePrinterOperations,
+) : BridgeHttpServer {
+    private var engine: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
     override fun start() {
         check(engine == null) { "Bridge HTTP server is already running" }
         engine = embeddedServer(CIO, host = "0.0.0.0", port = settings.port) {
-            bridgeModule(settings)
+            bridgeModule(settings, printers, operations)
         }.also { it.start(wait = false) }
     }
 
@@ -49,7 +58,11 @@ class KtorBridgeHttpServer(private val settings: BridgeSettings) : BridgeHttpSer
     }
 }
 
-fun Application.bridgeModule(settings: BridgeSettings) {
+fun Application.bridgeModule(
+    settings: BridgeSettings,
+    printers: PrinterCatalog,
+    operations: BridgePrinterOperations,
+) {
     install(ContentNegotiation) { json(BridgeJson) }
 
     intercept(ApplicationCallPipeline.Plugins) {
@@ -91,7 +104,7 @@ fun Application.bridgeModule(settings: BridgeSettings) {
             call.respond(
                 HealthResponse(
                     suggestedHosts = suggestedHosts(settings.port),
-                    printers = MockPrinterCatalog.printers,
+                    printers = printers.getAll().map { it.summary() },
                 ),
             )
         }
@@ -100,7 +113,10 @@ fun Application.bridgeModule(settings: BridgeSettings) {
             val body = call.receiveBodyOrNull()
             val validation = body?.let(PrintRequestValidator::validate)
             when (validation) {
-                is PrintRequestValidation.Valid -> respondMockOperation(validation.printerId)
+                is PrintRequestValidation.Valid -> call.respondOperation {
+                    operations.print(validation.printerId, validation.request.job)
+                    call.respond(OkResponse())
+                }
                 else -> call.respond(
                     HttpStatusCode.BadRequest,
                     ErrorResponse(error = BridgeMessage("invalid_request")),
@@ -110,40 +126,32 @@ fun Application.bridgeModule(settings: BridgeSettings) {
 
         post("/open-drawer") {
             val printerId = call.receiveBodyOrNull()?.let(::printerIdFromActionBody)
-            respondMockOperation(printerId.orEmpty())
+            if (printerId == null) {
+                call.respond(HttpStatusCode.InternalServerError, ErrorResponse(error = BridgeMessage("printer_not_found", mapOf("printerId" to ""))))
+            } else call.respondOperation {
+                operations.openDrawer(printerId)
+                call.respond(OkResponse())
+            }
         }
 
         post("/test/{printerId}") {
             val printerId = call.parameters["printerId"].orEmpty()
-            if (MockPrinterCatalog.contains(printerId)) {
+            call.respondOperation {
+                operations.test(printerId)
                 call.respond(TestResponse())
-            } else {
-                call.respondPrinterNotFound(printerId)
             }
         }
     }
 }
 
-private suspend fun io.ktor.server.application.ApplicationCall.respondMockOperation(printerId: String) {
-    if (MockPrinterCatalog.contains(printerId)) {
-        respond(OkResponse())
-    } else {
-        respondPrinterNotFound(printerId)
-    }
-}
-
-private suspend fun io.ktor.server.application.ApplicationCall.respondPrinterNotFound(
-    printerId: String,
-) {
-    respond(
-        HttpStatusCode.InternalServerError,
-        ErrorResponse(
-            error = BridgeMessage(
-                code = "printer_not_found",
-                params = mapOf("printerId" to printerId),
-            ),
-        ),
-    )
+private suspend fun io.ktor.server.application.ApplicationCall.respondOperation(
+    operation: suspend () -> Unit,
+) = try {
+    operation()
+} catch (error: BridgeOperationException) {
+    respond(HttpStatusCode.InternalServerError, ErrorResponse(error = BridgeMessage(error.code, error.params)))
+} catch (_: Throwable) {
+    respond(HttpStatusCode.InternalServerError, ErrorResponse(error = BridgeMessage("printer_unreachable")))
 }
 
 private suspend fun io.ktor.server.application.ApplicationCall.receiveBodyOrNull(): String? =

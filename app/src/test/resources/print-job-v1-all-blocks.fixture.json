@@ -1,0 +1,20 @@
+{
+  "printerId": "caja",
+  "job": {
+    "version": 1,
+    "widthMm": 80,
+    "reason": "contract-test",
+    "jobId": "job-123",
+    "blocks": [
+      { "type": "image", "url": "https://example.com/logo.png", "maxWidth": 512, "maxHeight": 256 },
+      { "type": "text", "content": "Ticket", "align": "center", "bold": true, "font": "compact-tall", "width": 2, "height": 2, "underline": false },
+      { "type": "table-row", "left": "Total", "right": "S/ 20.00", "bold": true, "align": "right" },
+      { "type": "separator", "style": "dotted" },
+      { "type": "feed", "lines": 2 },
+      { "type": "qr", "content": "https://example.com", "size": 4 },
+      { "type": "barcode", "content": "1234567890123", "format": "EAN13" },
+      { "type": "cut", "partial": true },
+      { "type": "open-drawer" }
+    ]
+  }
+}
