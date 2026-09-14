@@ -5,9 +5,7 @@ import com.luiscarodev.posticketbridge.contract.PrintJobV1
 import com.luiscarodev.posticketbridge.domain.PrinterCatalog
 import com.luiscarodev.posticketbridge.domain.PrinterDefinition
 import com.luiscarodev.posticketbridge.domain.PrinterType
-import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CancellationException
 
 class BridgeOperationException(
     val code: String,
@@ -24,12 +22,16 @@ interface BridgePrinterOperations {
 class PrintCoordinator(
     private val printers: PrinterCatalog,
     private val encoder: EscPosEncoder,
-    private val transports: PrinterTransportFactory,
+    private val transportFor: (PrinterDefinition) -> PrinterTransport,
 ) : BridgePrinterOperations {
-    private val locks = ConcurrentHashMap<String, Mutex>()
+    constructor(printers: PrinterCatalog, encoder: EscPosEncoder, transports: PrinterTransportFactory) :
+        this(printers, encoder, transports::create)
+
+    private val queue = PrintQueue()
 
     override suspend fun print(printerId: String, job: PrintJobV1) = withPrinter(printerId) { printer ->
         val bytes = try { encoder.encode(job, printer) }
+        catch (error: CancellationException) { throw error }
         catch (error: Throwable) { throw BridgeOperationException(error.message ?: "print_encode_failed", cause = error) }
         send(printer, bytes)
     }
@@ -39,8 +41,7 @@ class PrintCoordinator(
     }
 
     suspend fun testConfiguration(printer: PrinterDefinition) {
-        val key = printer.id.ifBlank { "draft:${printer.tipo}:${printer.nombre}" }
-        locks.getOrPut(key) { Mutex() }.withLock { sendTest(printer) }
+        queue.run(printer) { sendTest(printer) }
     }
 
     private suspend fun sendTest(printer: PrinterDefinition) {
@@ -57,11 +58,12 @@ class PrintCoordinator(
         val printer = printers.find(id)
             ?: throw BridgeOperationException("printer_not_found", mapOf("printerId" to id))
         if (!printer.enabled) throw BridgeOperationException("printer_disabled", mapOf("printerId" to id))
-        return locks.getOrPut(id) { Mutex() }.withLock { action(printer) }
+        return queue.run(printer) { action(printer) }
     }
 
     private suspend fun send(printer: PrinterDefinition, bytes: ByteArray) {
-        try { transports.create(printer).write(bytes) }
+        try { transportFor(printer).write(bytes) }
+        catch (error: CancellationException) { throw error }
         catch (error: BridgeOperationException) { throw error }
         catch (error: SecurityException) {
             throw BridgeOperationException(

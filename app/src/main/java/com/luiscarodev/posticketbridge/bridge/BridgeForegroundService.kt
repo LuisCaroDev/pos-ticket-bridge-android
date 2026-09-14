@@ -23,6 +23,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import com.luiscarodev.posticketbridge.bridge.https.AndroidHttpsStore
+import com.luiscarodev.posticketbridge.bridge.https.LocalHttpsController
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -31,7 +35,7 @@ class BridgeForegroundService : Service() {
     private val transitionMutex = Mutex()
     private val serverLock = Any()
     private var transitionJob: Job? = null
-    private var server: BridgeHttpServer? = null
+    private var controller: LocalHttpsController? = null
     @Volatile private var destroyed = false
 
     private val app: BridgeApplication
@@ -41,16 +45,43 @@ class BridgeForegroundService : Service() {
         super.onCreate()
         createNotificationChannel()
         promoteToForeground(notification(getString(R.string.bridge_starting)))
+        scope.launch {
+            for (command in app.httpsRepository.commands) {
+                try {
+                    transitionMutex.withLock {
+                        if (controller == null) startServer()
+                        synchronized(serverLock) {
+                            check(!destroyed) { "bridge_not_running" }
+                            requireNotNull(controller).execute(command.action)
+                        }
+                        command.result.complete(Unit)
+                        publishRuntime()
+                    }
+                } catch (error: Exception) {
+                    command.result.completeExceptionally(error)
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    publishRuntime()
+                }
+            }
+        }
+        scope.launch {
+            while (isActive) {
+                delay(5_000)
+                transitionMutex.withLock {
+                    synchronized(serverLock) { runCatching { controller?.reconcile() } }
+                    publishRuntime()
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val restart = intent?.action == ACTION_RESTART
-        if (restart || server == null) {
-            transitionJob?.cancel()
+        if (restart || controller == null) {
             transitionJob = scope.launch {
                 transitionMutex.withLock {
                     if (restart) stopServer()
-                    if (server == null) startServer()
+                    if (controller == null) startServer()
                 }
             }
         }
@@ -64,6 +95,10 @@ class BridgeForegroundService : Service() {
         transitionJob?.cancel()
         stopServer()
         scope.cancel()
+        while (true) {
+            val command = app.httpsRepository.commands.tryReceive().getOrNull() ?: break
+            command.result.completeExceptionally(IllegalStateException("bridge_not_running"))
+        }
         app.runtimeRepository.update(BridgeRuntimeState.Stopped)
         super.onDestroy()
     }
@@ -73,22 +108,18 @@ class BridgeForegroundService : Service() {
         updateNotification(getString(R.string.bridge_starting))
         runCatching {
             val settings = app.settingsRepository.getOrCreate()
-            val nextServer = KtorBridgeHttpServer(
-                settings,
-                app.printerRepository,
-                app.printCoordinator,
+            val nextController = LocalHttpsController(
+                AndroidHttpsStore(this), app.httpsRepository,
+                { https -> KtorBridgeHttpServer(settings, app.printerRepository, app.printCoordinator, https) },
+                settings.port,
             )
             synchronized(serverLock) {
                 if (destroyed) return
-                nextServer.start()
-                server = nextServer
+                controller = nextController
+                nextController.restart()
             }
-            val hosts = suggestedHosts(settings.port)
-            app.runtimeRepository.update(BridgeRuntimeState.Running(hosts, settings.port))
-            updateNotification(getString(R.string.bridge_running, settings.port))
+            publishRuntime()
         }.onFailure { error ->
-            server?.stop()
-            server = null
             val reason = error.message ?: error::class.java.simpleName
             app.runtimeRepository.update(BridgeRuntimeState.Failed(reason))
             updateNotification(getString(R.string.bridge_failed))
@@ -97,8 +128,20 @@ class BridgeForegroundService : Service() {
 
     private fun stopServer() {
         synchronized(serverLock) {
-            runCatching { server?.stop() }
-            server = null
+            runCatching { controller?.shutdown() }
+            controller = null
+        }
+    }
+
+    private fun publishRuntime() {
+        if (destroyed) return
+        val status = app.httpsRepository.state.value
+        if (status.transport == "stopped") {
+            app.runtimeRepository.update(BridgeRuntimeState.Failed(status.error ?: "bridge_not_running"))
+            updateNotification(getString(R.string.bridge_failed))
+        } else {
+            app.runtimeRepository.update(BridgeRuntimeState.Running(listOf(status.host), com.luiscarodev.posticketbridge.data.BRIDGE_PORT))
+            updateNotification(getString(R.string.bridge_running, com.luiscarodev.posticketbridge.data.BRIDGE_PORT))
         }
     }
 

@@ -48,6 +48,8 @@ Si esa ruta no está disponible, usar fixtures Android versionados y documentar 
 - `/print` valida el contrato completo `PrintJobV1`, incluidos los nueve tipos
   de bloque. El bloque `text` conserva su rechazo de campos desconocidos; los
   objetos que Zod acepta de forma no estricta conservan esa tolerancia.
+- Los bloques `image` se contienen dentro del ancho imprimible y se centran de
+  forma implícita, igual que desktop; el payload no necesita un campo `align`.
 - CORS admite solicitudes sin `Origin`, refleja únicamente localhost del bridge
   u orígenes persistidos por el usuario, y permite preflight sin token.
 - Los orígenes configurables se validan como orígenes base `http` o `https`, sin
@@ -57,9 +59,33 @@ Si esa ruta no está disponible, usar fixtures Android versionados y documentar 
 - Status/configuración/diagnósticos/CRUD/descubrimiento HTTP permanecen
   aplazados; el CRUD de impresoras sólo está disponible en la app Android.
 - V1 no persiste trabajos ni aplica idempotencia durable a `jobId`.
+- Como `src/core/print-queue.ts` de desktop, Android comparte una cola en memoria
+  por destino entre impresión, cajón y pruebas, incluyendo borradores de UI.
+  `/print`, `/open-drawer` y `/test/:printerId` mantienen sus respuestas síncronas
+  y esperan su turno hasta completar el transporte. No se agregan endpoints ni
+  campos de estado; Bluetooth se identifica por MAC en Android y USB se agrupa
+  conservadoramente por VID/PID, incluso si existe un número de serie.
 - `/test/:printerId` y la prueba de una configuración sin guardar usan el mismo
   ticket de prueba que desktop. Android añade únicamente la línea centrada
   `mobile` debajo del encabezado.
+
+### HTTPS local
+
+- El transporte seleccionable HTTP/HTTPS conserva el puerto `9977`, las cuatro
+  rutas V1, `x-agent-token`, payloads y respuestas síncronas existentes.
+- Con HTTPS activo, `suggestedHosts` en `/health` contiene únicamente la IPv4
+  certificada con esquema `https`. Los clientes deben usar esa URL, sin sustituirla
+  por localhost ni otra interfaz. No se agrega una API remota para administrar CA.
+- CORS incluye las variantes HTTPS de localhost/127.0.0.1 y refleja
+  `Access-Control-Allow-Private-Network: true` en preflight que lo solicite sólo si
+  el origen está autorizado o ausente, igual que desktop.
+- Descarga temporal separada en `9978`: `GET`/`HEAD` de `/setup/android.cer`,
+  `/setup/windows.cer`, `/setup/macos.cer` y `/setup/ios.mobileconfig`. Sólo material
+  público, misma subred, `no-store`, `nosniff`, diez minutos por defecto (configurable con `POS_BRIDGE_HTTPS_SETUP_TTL_MS`). No contiene token ni
+  permite impresión. La CA y el nombre del perfil terminan en `mobile`.
+- Los estados de recuperación de certificados/red se presentan en la app; no se
+  cambia el envelope de las operaciones de impresión. Android guía la instalación
+  y retirada de confianza del sistema sin reproducir la automatización de desktop.
 
 ### Evidencia contractual
 

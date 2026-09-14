@@ -148,7 +148,7 @@ class BridgeViewModel(
         )
     }
 
-    val uiState = combine(bridgeState, printerState) { bridge, printer ->
+    val uiState = combine(bridgeState, printerState, app.httpsRepository.state) { bridge, printer, https ->
         val (settings, runtime, connectionUrls) = bridge
         BridgeUiState(
             runtime = runtime,
@@ -157,7 +157,9 @@ class BridgeViewModel(
             port = settings.port,
             saving = printer.saving,
             resultMessage = printer.message,
-            connectionUrls = connectionUrls,
+            connectionUrls = if (https.loaded && (https.enabled || https.transport == "stopped")) {
+                ConnectionUrls(ConnectionUrl(https.host, connectionUrls.primary.kind), emptyList())
+            } else connectionUrls,
             printers = printer.printers,
             pairedBluetooth = printer.paired,
             networkCandidates = printer.networkCandidates,

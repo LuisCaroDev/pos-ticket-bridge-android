@@ -15,3 +15,15 @@
 # classes that do not exist on Android and are never used by the bridge runtime.
 -dontwarn java.lang.management.ManagementFactory
 -dontwarn java.lang.management.RuntimeMXBean
+
+# Netty uses platform JSSE with HTTP/2 and native OpenSSL disabled. These are
+# optional desktop providers, logging backends and JVM Flight Recorder hooks.
+-dontwarn io.netty.internal.tcnative.**
+-dontwarn org.conscrypt.**
+-dontwarn org.apache.log4j.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn jdk.jfr.**
+# Netty's optional client trust-error decoration uses LDAP names. Our Netty
+# listener does not request client certificates; LocalBridgeClient uses JSSE.
+-dontwarn javax.naming.ldap.LdapName
+-dontwarn javax.naming.ldap.Rdn

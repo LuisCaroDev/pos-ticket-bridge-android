@@ -31,6 +31,24 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
+// Only public HTTPS help settings are embedded; never package the entire environment.
+val httpsEnvFile = rootProject.file(".env")
+val httpsFileValues = if (httpsEnvFile.isFile) httpsEnvFile.readLines().mapNotNull { line ->
+    val entry = line.trim().removePrefix("export ").split('=', limit = 2)
+    if (entry.size != 2 || !entry[0].trim().startsWith("POS_BRIDGE_HTTPS_")) null
+    else entry[0].trim() to entry[1].trim().removeSurrounding("\"").removeSurrounding("'")
+}.toMap() else emptyMap()
+val httpsSettingNames = listOf("POS_BRIDGE_HTTPS_SETUP_TTL_MS") +
+    listOf("VIDEO", "GUIDE").flatMap { kind ->
+        listOf("IOS", "ANDROID", "WINDOWS", "MACOS").map { "POS_BRIDGE_HTTPS_${kind}_$it" }
+    }
+fun javaString(value: String): String = "\"" + value.flatMap { char ->
+    when (char) {
+        '\\' -> "\\\\"; '"' -> "\\\""; '\n' -> "\\n"; '\r' -> "\\r"; '\t' -> "\\t"
+        else -> char.toString()
+    }.toList()
+}.joinToString("") + "\""
+
 android {
     namespace = "com.luiscarodev.posticketbridge"
     compileSdk {
@@ -45,6 +63,11 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        httpsSettingNames.forEach { name ->
+            val value = providers.environmentVariable(name).orNull
+                ?: providers.gradleProperty(name).orNull ?: httpsFileValues[name].orEmpty()
+            buildConfigField("String", name, javaString(value))
+        }
     }
 
     signingConfigs {
@@ -79,7 +102,10 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
+    packaging.resources.excludes += setOf("META-INF/INDEX.LIST", "META-INF/io.netty.versions.properties",
+        "META-INF/services/reactor.blockhound.integration.BlockHoundIntegration")
 }
 
 tasks.register("packageDistribution") {
@@ -132,6 +158,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.server.netty)
+    implementation(libs.bouncycastle.pkix)
+    implementation(libs.zxing.core)
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.androidx.room.runtime)

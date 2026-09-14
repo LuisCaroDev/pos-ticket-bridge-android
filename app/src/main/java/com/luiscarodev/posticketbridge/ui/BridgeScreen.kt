@@ -120,6 +120,9 @@ private data object HomeRoute
 private data object SettingsRoute
 
 @Serializable
+private data object HttpsSetupRoute
+
+@Serializable
 private data class PrinterEditRoute(val printerId: String? = null)
 
 private const val NAVIGATION_FADE_DURATION_MILLIS = 700
@@ -135,6 +138,7 @@ private fun navigationFadeOut(): ExitTransition = fadeOut(
 @Composable
 fun BridgeApp(
     viewModel: BridgeViewModel = viewModel(),
+    httpsViewModel: HttpsViewModel = viewModel(),
     permissionState: StateFlow<BridgePermissionUiState>? = null,
     batteryState: StateFlow<BatteryUiState>? = null,
     onRequestLocalNetworkPermission: () -> Unit = {},
@@ -146,6 +150,10 @@ fun BridgeApp(
     onRequestBluetoothPermission: ((() -> Unit) -> Unit) = { it() },
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val https by httpsViewModel.status.collectAsStateWithLifecycle()
+    val httpsDraft by httpsViewModel.draft.collectAsStateWithLifecycle()
+    val httpsBusy by httpsViewModel.busy.collectAsStateWithLifecycle()
+    val httpsFailure by httpsViewModel.error.collectAsStateWithLifecycle()
     val printerForm by viewModel.printerEditState.collectAsStateWithLifecycle()
     val allowedOrigins by viewModel.allowedOriginsState.collectAsStateWithLifecycle()
     val defaultPermissionState = remember { MutableStateFlow(BridgePermissionUiState.Granted) }
@@ -188,6 +196,8 @@ fun BridgeApp(
                     onEditPrinter = { navController.navigate(PrinterEditRoute(it)) },
                     onTestPrinter = viewModel::testPrinter,
                     onDeletePrinter = viewModel::deletePrinter,
+                    httpsContent = { HttpsAccessCard(https, httpsBusy,
+                        { navController.navigate(HttpsSetupRoute) }, httpsViewModel::retry) },
                 )
             }
             composable<SettingsRoute> {
@@ -199,7 +209,13 @@ fun BridgeApp(
                     onCommitOrigin = viewModel::commitOriginInput,
                     onRemoveOrigin = viewModel::removeOrigin,
                     onSaveOrigins = viewModel::saveOrigins,
+                    httpsContent = { HttpsSettingsCard(https, httpsDraft, httpsBusy, httpsFailure,
+                        httpsViewModel::enable, httpsViewModel::select, httpsViewModel::save, httpsViewModel::reset) },
                 )
+            }
+            composable<HttpsSetupRoute> {
+                HttpsSetupScreen(https, httpsBusy, httpsFailure, { navController.popBackStack() },
+                    httpsViewModel::enroll, httpsViewModel::stopEnrollment)
             }
             composable<PrinterEditRoute> { entry ->
                 val route = entry.toRoute<PrinterEditRoute>()
@@ -258,6 +274,7 @@ fun BridgeApp(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeScreen(
+    httpsContent: @Composable () -> Unit,
     state: BridgeUiState,
     permissions: BridgePermissionUiState,
     battery: BatteryUiState,
@@ -330,6 +347,7 @@ private fun HomeScreen(
             }
             RuntimeCard(state.runtime, state.port)
             CompactConnectionCard(state, snackbarHostState)
+            httpsContent()
             SavedPrintersSection(
                 state = state,
                 onEdit = onEditPrinter,
@@ -467,10 +485,10 @@ private fun CompactConnectionCard(state: BridgeUiState, snackbarHostState: Snack
             ) {
                 CompactValue(
                     label = "Host · ${connectionLabel(primary.kind)}",
-                    value = primary.value,
+                    value = primary.value.ifEmpty { "Sin conexión" },
                     modifier = Modifier.weight(1f),
                 )
-                CopyIconButton(primary.value, "Copiar host") {
+                CopyIconButton(primary.value, "Copiar host", enabled = primary.value.isNotEmpty()) {
                     snackbarHostState.showSnackbar("Host copiado")
                 }
                 if (state.connectionUrls.alternatives.isNotEmpty()) {
@@ -683,6 +701,7 @@ private fun SavedPrinterCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(
+    httpsContent: @Composable () -> Unit,
     state: BridgeUiState,
     originsState: AllowedOriginsUiState,
     navController: NavHostController,
@@ -715,6 +734,7 @@ private fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("Red", style = MaterialTheme.typography.titleLarge)
+            httpsContent()
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -836,7 +856,8 @@ private fun RuntimeCard(runtime: BridgeRuntimeState, port: Int) {
         BridgeRuntimeState.Stopped -> "Detenido" to false
         BridgeRuntimeState.Starting -> "Iniciando…" to false
         is BridgeRuntimeState.Running -> "Activo en el puerto $port" to false
-        is BridgeRuntimeState.Failed -> "Error: ${runtime.reason}" to true
+        is BridgeRuntimeState.Failed -> (if (runtime.reason.startsWith("https_")) httpsError(runtime.reason)
+            else "Error: ${runtime.reason}") to true
     }
     Card(
         modifier = Modifier.fillMaxWidth(),

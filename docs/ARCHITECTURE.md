@@ -26,14 +26,14 @@ Para cambios en comportamiento HTTP o payloads compartidos, consultar también [
 | Preferencias pequeñas | DataStore |
 | Inyección | Hilt |
 | Ejecución persistente | `ForegroundService` de tipo `connectedDevice` |
-| HTTP | Interfaz propia; Ktor Server CIO es candidato sujeto a validación |
+| HTTP/HTTPS | Interfaz propia; Ktor Server Netty con JSSE de Android |
 | Impresión | Encoder ESC/POS independiente de los transportes |
 | Transportes | TCP, Bluetooth Classic y Android USB Host; BLE después |
 
 ## Estado implementado de impresión V1
 
 - `BridgeForegroundService` arranca desde la actividad visible, es dueño de Ktor
-  Server CIO y permanece foreground con el tipo `connectedDevice`. En Android 17
+  Server Netty y permanece foreground con el tipo `connectedDevice`. En Android 17
   no puede arrancar ni reiniciarse sin `ACCESS_LOCAL_NETWORK` concedido.
 - El runtime publica `Starting`, `Running`, `Failed` y `Stopped` mediante un
   repositorio de aplicación con `StateFlow`.
@@ -52,6 +52,8 @@ Para cambios en comportamiento HTTP o payloads compartidos, consultar también [
 - Para recibos nativos, texto, estilos, tablas e imágenes usan las mismas
   secuencias y métricas que el encoder desktop; una captura desktop versionada
   protege la paridad byte a byte del perfil XPrinter XP-E260L en español.
+- Cada bloque de imagen establece centrado ESC/POS explícitamente antes de
+  imprimir, sin depender de la alineación heredada del bloque anterior.
 - El bloque `cut` avanza tres líneas antes de accionar el cortador para sacar el
   último contenido de la distancia física entre el cabezal y la cuchilla.
 - Guardar CORS reinicia el servidor de forma controlada. No existe receiver de
@@ -165,6 +167,14 @@ Los paquetes iniciales viven bajo el namespace configurado y se organizan por re
 - Los repositorios son la fuente compartida de verdad para servicio y UI.
 - Room almacena impresoras en V1. La futura cola durable almacenará trabajos, registros de idempotencia y diagnósticos acotados. DataStore almacena preferencias pequeñas.
 - V1 no recupera trabajos interrumpidos ni reintenta `jobId`; la solicitud HTTP permanece abierta hasta terminar la escritura o devolver error.
+- `PrintCoordinator`, compartido por aplicación entre HTTP/HTTPS y pruebas de UI,
+  usa `PrintQueue` en memoria para serializar generación, escritura y cierre por
+  destino: host normalizado/puerto TCP, dirección Bluetooth o VID/PID USB. Los
+  alias y borradores comparten cola; USB agrupa conservadoramente el modelo para
+  cubrir configuraciones con y sin número de serie. Otros destinos avanzan en
+  paralelo. Los waiters del mutex son FIFO; errores y cancelaciones liberan su
+  turno, y las entradas sin usuarios se eliminan atómicamente. La cancelación
+  conserva su tipo y no se convierte en un error de impresora inaccesible.
 - Usar corrutinas estructuradas; nunca `GlobalScope`. El I/O bloqueante no corre en el hilo principal.
 - Serializar trabajos por impresora física con un worker o mutex indexado, permitiendo que impresoras distintas trabajen en paralelo.
 - Modelar ciclos de vida del runtime y de los trabajos con estados sellados o enums, no con booleanos independientes.
@@ -191,7 +201,47 @@ POST /print
 
 ### Motor HTTP
 
-El motor queda detrás de una interfaz propia. No escribir un parser HTTP artesanal. Ktor Server CIO sólo queda adoptado después de que un build release supere pruebas de solicitudes sostenidas, pantalla apagada/background, reinicio, memoria y R8 en hardware físico.
+El motor queda detrás de `BridgeHttpServer`. Netty sirve HTTP o HTTPS en `9977`;
+CIO 3.5.2 no admite TLS y se conserva únicamente para la descarga temporal de la
+CA pública. Netty usa JSSE de Android, TLS 1.2/1.3 según disponibilidad, grupos de
+hilos acotados y HTTP/1.1. No se empaqueta OpenSSL nativo ni se escribe un parser HTTP.
+
+### HTTPS local mobile
+
+- `LocalHttpsController` pertenece al servicio foreground y serializa activación,
+  pausa, recuperación, cambio de red y restablecimiento junto con sus listeners.
+  `HttpsRepository` publica estado y canaliza órdenes; los ViewModels no son dueños
+  de sockets. El servicio comprueba red y vigencia cada cinco segundos.
+- Cada instalación genera una CA ECDSA P-256 de diez años con CN
+  `POS Ticket Bridge <UUID> mobile`. El certificado de servidor incluye la IPv4 en
+  SAN y `serverAuth`, dura como máximo 365 días y se renueva a treinta días de
+  vencer. Cambiar de IP conserva la CA. Si desaparece la interfaz, HTTPS se detiene
+  y se recupera al regresar; no degrada automáticamente a HTTP.
+- El registro se cifra con AES-GCM y una clave no exportable de Android Keystore,
+  y se escribe con `AtomicFile` en `noBackupFilesDir`. Un archivo corrupto no se
+  reemplaza silenciosamente. Desactivar conserva la CA; restablecer elimina el
+  material del registro y requiere instalar una CA nueva en los clientes.
+- El listener HTTPS se liga sólo a la IPv4 privada elegida. La UI y `/health`
+  anuncian esa dirección real; no ofrecen localhost u otras IP fuera del SAN.
+  `LocalBridgeClient` confía sólo en la CA propia para la prueba local y mantiene
+  la validación de hostname; no depende de instalar confianza en el sistema.
+- El asistente Material ocupa una pantalla con dos pasos: sistema operativo y
+  descarga/instalación. El QR contiene sólo la URL pública de la CA; el listener
+  HTTP `9978` se abre durante diez minutos por defecto, restringe la subred y se cierra al salir,
+  cambiar de sistema/red, vencer o detener el servicio. iOS recibe `.mobileconfig`;
+  Android, Windows y macOS reciben `.cer` DER.
+- La instalación de confianza de una CA en Android es manual desde Ajustes. Servir
+  HTTPS no requiere instalarla en el propio teléfono; usar el navegador de ese
+  teléfono como POS sí requiere completar el flujo de confianza. Restablecer no
+  desinstala automáticamente las CA que el usuario instaló en sus dispositivos.
+- Ajustes mantiene un borrador en `HttpsViewModel` y Guardar conexión aplica una
+  transición con rollback del listener y configuración previa si falla. La pantalla
+  principal conserva host/token compactos y añade acceso al asistente y detalles
+  desplegables del certificado.
+
+La validación de distribución debe incluir R8 y solicitudes TLS verificadas en
+hardware, además de pantalla apagada, reinicio y cambios de Wi-Fi/hotspot. La firma
+release requiere el keystore privado configurado en la máquina.
 
 ## Verificación
 
@@ -199,3 +249,24 @@ El motor queda detrás de una interfaz propia. No escribir un parser HTTP artesa
 - Instrumentación: ciclo de vida del servicio, migración Room, permisos, USB, Bluetooth y comportamiento Compose.
 - Finalizar cambios materiales con las comprobaciones aplicables: `./gradlew.bat test`, `./gradlew.bat lint` y `./gradlew.bat assembleDebug`.
 - `./gradlew.bat connectedAndroidTest` requiere emulador o dispositivo. TCP, Bluetooth, USB, reinicio y background prolongado requieren hardware real; informar claramente lo que quede pendiente.
+
+### Configuración pública del asistente HTTPS
+
+Copia `.env.example` a `.env` en la raíz del proyecto y recompila la APK. Se
+conservan los nombres del desktop: `POS_BRIDGE_HTTPS_VIDEO_IOS`,
+`POS_BRIDGE_HTTPS_VIDEO_ANDROID`, `POS_BRIDGE_HTTPS_VIDEO_WINDOWS`,
+`POS_BRIDGE_HTTPS_VIDEO_MACOS`, sus equivalentes `POS_BRIDGE_HTTPS_GUIDE_*` y
+`POS_BRIDGE_HTTPS_SETUP_TTL_MS`. La precedencia es variable de entorno del proceso
+Gradle, propiedad Gradle `-P`, archivo `.env`, valor predeterminado. Android los
+incorpora al compilar; cambiar el entorno después de instalar no modifica la app.
+El lector `.env` admite asignaciones de una línea con comillas opcionales, sin
+expansión de variables ni comentarios al final del valor.
+
+Los videos vacíos o inválidos se ocultan. Las guías vacías o inválidas usan la
+referencia oficial del sistema operativo. Los enlaces personalizados deben ser
+HTTPS, con host y sin credenciales. El asistente también conserva un enlace
+explícito a la guía oficial cuando hay una guía personalizada. La duración debe
+ser un número entero de milisegundos entre 1 y 2147483647; si no lo es, se usan
+600000 ms. La UI y el servidor usan la misma configuración validada. Sólo estas
+nueve opciones públicas se incorporan a BuildConfig; no se empaqueta el archivo
+`.env` ni otras variables. No coloques secretos en enlaces de ayuda.

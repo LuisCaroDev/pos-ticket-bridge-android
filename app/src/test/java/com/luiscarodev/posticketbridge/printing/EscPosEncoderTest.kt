@@ -185,14 +185,14 @@ class EscPosEncoderTest {
     }
 
     @Test
-    fun matchesDesktopBitmapCommandForImageBlocks() = runBlocking {
+    fun centersImageBlocksAndMatchesDesktopBitmapCommand() = runBlocking {
         val bytes = encoder.encode(
             PrintJobV1(1, blocks = listOf(ImageBlock("data:image/png;base64,x"))),
             printer,
         )
 
         assertArrayEquals(
-            "1b401c2e1b74021b33001b2a2101008000000a1b32".hexToByteArray(),
+            "1b401c2e1b74021b61011b33001b2a2101008000000a1b32".hexToByteArray(),
             bytes,
         )
     }

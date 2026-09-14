@@ -31,6 +31,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BridgeRoutesTest {
+    @Test
+    fun privateNetworkPreflightOnlyAllowsConfiguredOrigins() = testApplication {
+        application { bridgeModule(settings, catalog, operations) }
+        for (origin in listOf("https://pos.example.com", "https://localhost:9977", "https://other.example.com")) {
+            val response = client.options("/print") {
+                header(HttpHeaders.Origin, origin)
+                header("Access-Control-Request-Private-Network", "true")
+            }
+            assertEquals(HttpStatusCode.NoContent, response.status)
+            assertEquals(if (origin == "https://other.example.com") null else "true", response.headers["Access-Control-Allow-Private-Network"])
+        }
+    }
     private val settings = BridgeSettings(
         token = "secret",
         allowedOrigins = listOf("https://pos.example.com"),

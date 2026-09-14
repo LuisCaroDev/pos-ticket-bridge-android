@@ -8,11 +8,21 @@ import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class LocalBridgeClient(private val settings: BridgeSettingsRepository) {
+class LocalBridgeClient(
+    private val settings: BridgeSettingsRepository,
+    private val https: com.luiscarodev.posticketbridge.bridge.https.HttpsRepository,
+) {
     suspend fun testPrinter(printerId: String) = withContext(Dispatchers.IO) {
         val config = settings.getOrCreate()
-        val connection = URL("http://127.0.0.1:${config.port}/test/$printerId")
+        val status = https.state.value
+        check(status.transport != "stopped") { "bridge_not_running" }
+        val host = if (status.transport == "https") status.host else "http://127.0.0.1:${config.port}"
+        val connection = URL("$host/test/$printerId")
             .openConnection() as HttpURLConnection
+        if (connection is javax.net.ssl.HttpsURLConnection) {
+            connection.sslSocketFactory = com.luiscarodev.posticketbridge.bridge.https.HttpsCertificates
+                .clientContext(requireNotNull(https.clientCa)).socketFactory
+        }
         try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 2_000

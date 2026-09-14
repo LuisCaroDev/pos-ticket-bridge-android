@@ -22,7 +22,8 @@ class BridgeApplication : Application() {
     val permissionStateRepository by lazy { PermissionStateRepository(applicationContext) }
     val runtimeRepository by lazy { BridgeRuntimeRepository() }
     val connectionUrlRepository by lazy { ConnectionUrlRepository(applicationContext, BRIDGE_PORT) }
-    val localBridgeClient by lazy { LocalBridgeClient(settingsRepository) }
+    val httpsRepository by lazy { com.luiscarodev.posticketbridge.bridge.https.HttpsRepository() }
+    val localBridgeClient by lazy { LocalBridgeClient(settingsRepository, httpsRepository) }
     val printerDatabase by lazy { PrinterDatabase.create(applicationContext) }
     val printerRepository by lazy { PrinterRepository(printerDatabase.printerDao()) }
     val bluetoothPrinterAccess by lazy { BluetoothPrinterAccess(applicationContext) }

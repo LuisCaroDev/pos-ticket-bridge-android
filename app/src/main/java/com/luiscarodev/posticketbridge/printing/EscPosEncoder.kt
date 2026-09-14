@@ -104,6 +104,7 @@ class EscPosEncoder(private val rasterizer: PrintRasterizer) {
                     is ImageBlock -> {
                         val maxWidth = (block.maxWidth?.toInt() ?: profile.rasterWidth)
                             .coerceIn(1, profile.rasterWidth)
+                        command(ESC, 0x61, 1)
                         bitmap(rasterizer.image(
                             block.url,
                             maxWidth,

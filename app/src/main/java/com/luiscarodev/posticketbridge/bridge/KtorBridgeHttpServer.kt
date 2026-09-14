@@ -21,8 +21,12 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
 import io.ktor.server.application.install
-import io.ktor.server.cio.CIO
-import io.ktor.server.cio.CIOApplicationEngine
+import io.ktor.server.netty.Netty
+import io.ktor.server.netty.NettyApplicationEngine
+import io.ktor.server.engine.connector
+import io.ktor.server.engine.sslConnector
+import com.luiscarodev.posticketbridge.bridge.https.HttpsRecord
+import com.luiscarodev.posticketbridge.bridge.https.HttpsCertificates
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
@@ -42,14 +46,36 @@ class KtorBridgeHttpServer(
     private val settings: BridgeSettings,
     private val printers: PrinterCatalog,
     private val operations: BridgePrinterOperations,
+    private val https: HttpsRecord = HttpsRecord(),
 ) : BridgeHttpServer {
-    private var engine: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
+    private var engine: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
 
     override fun start() {
         check(engine == null) { "Bridge HTTP server is already running" }
-        engine = embeddedServer(CIO, host = "0.0.0.0", port = settings.port) {
-            bridgeModule(settings, printers, operations)
-        }.also { it.start(wait = false) }
+        // Use Android's JSSE implementation; desktop tcnative/OpenSSL is not packaged.
+        System.setProperty("io.netty.handler.ssl.noOpenSsl", "true")
+        val next = embeddedServer(Netty, configure = {
+            enableHttp2 = false
+            enableH2c = false
+            connectionGroupSize = 1
+            workerGroupSize = 2
+            callGroupSize = 2
+            requestReadTimeoutSeconds = 15
+            responseWriteTimeoutSeconds = 30
+            if (https.enabled) {
+                sslConnector(HttpsCertificates.keyStore(requireNotNull(https.material)), "bridge", { CharArray(0) }, { CharArray(0) }) {
+                    host = requireNotNull(https.selection).address
+                    port = settings.port
+                    enabledProtocols = javax.net.ssl.SSLContext.getDefault().supportedSSLParameters.protocols
+                        .filter { it == "TLSv1.2" || it == "TLSv1.3" }
+                }
+            } else connector { host = "0.0.0.0"; port = settings.port }
+        }) {
+            bridgeModule(settings, printers, operations,
+                if (https.enabled) listOf("https://${https.selection!!.address}:${settings.port}") else null)
+        }
+        engine = next
+        try { next.start(wait = false) } catch (error: Exception) { stop(); throw error }
     }
 
     override fun stop() {
@@ -62,6 +88,7 @@ fun Application.bridgeModule(
     settings: BridgeSettings,
     printers: PrinterCatalog,
     operations: BridgePrinterOperations,
+    advertisedHosts: List<String>? = null,
 ) {
     install(ContentNegotiation) { json(BridgeJson) }
 
@@ -81,6 +108,10 @@ fun Application.bridgeModule(
         }
 
         if (call.request.httpMethod == HttpMethod.Options) {
+            if ((origin == null || isAllowedOrigin(origin, settings)) &&
+                call.request.header("access-control-request-private-network") == "true") {
+                call.response.headers.append("Access-Control-Allow-Private-Network", "true")
+            }
             call.respond(HttpStatusCode.NoContent)
             finish()
             return@intercept
@@ -103,7 +134,7 @@ fun Application.bridgeModule(
         get("/health") {
             call.respond(
                 HealthResponse(
-                    suggestedHosts = suggestedHosts(settings.port),
+                    suggestedHosts = advertisedHosts ?: suggestedHosts(settings.port),
                     printers = printers.getAll().map { it.summary() },
                 ),
             )
@@ -167,6 +198,8 @@ private fun printerIdFromActionBody(body: String): String? {
 private fun isAllowedOrigin(origin: String, settings: BridgeSettings): Boolean =
     origin == "http://localhost:${settings.port}" ||
         origin == "http://127.0.0.1:${settings.port}" ||
+        origin == "https://localhost:${settings.port}" ||
+        origin == "https://127.0.0.1:${settings.port}" ||
         origin in settings.allowedOrigins
 
 private fun tokenMatches(expected: String, actual: String?): Boolean {

@@ -9,6 +9,12 @@ impresoras en Room y envía ESC/POS por red TCP, Bluetooth Classic o USB Host. L
 crear, editar, probar y eliminar impresoras; BLE y cola durable quedan para
 iteraciones posteriores.
 
+HTTPS local se activa en Ajustes → Conexión segura. Cada instalación crea una CA
+`POS Ticket Bridge <UUID> mobile`; desde Inicio → Configurar dispositivo se descarga
+su certificado público mediante un QR de diez minutos por defecto. Instala la CA en los
+dispositivos que abran el POS. Desactivar HTTPS conserva los certificados; cambiar
+de IP conserva la CA y requiere actualizar la URL configurada en el POS.
+
 ## Compilar una APK release
 
 La firma es privada y nunca se guarda en Git. En la primera preparación ejecuta:
@@ -55,3 +61,7 @@ Cada decisión se mantiene en su documento correspondiente. Las skills locales d
 5. ~~Resto de bloques ESC/POS.~~
 6. ~~Android USB Host.~~
 7. BLE y endurecimiento adicional para POS dedicado.
+
+El asistente incluye pasos numerados y referencias oficiales para Android,
+iOS, Windows y macOS. Para configurar guías, videos y duración del QR con las
+variables del desktop, consulta [Configuración pública del asistente HTTPS](docs/ARCHITECTURE.md#configuración-pública-del-asistente-https).
