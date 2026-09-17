@@ -156,6 +156,7 @@ fun BridgeApp(
     val httpsFailure by httpsViewModel.error.collectAsStateWithLifecycle()
     val printerForm by viewModel.printerEditState.collectAsStateWithLifecycle()
     val allowedOrigins by viewModel.allowedOriginsState.collectAsStateWithLifecycle()
+    val portState by viewModel.portState.collectAsStateWithLifecycle()
     val defaultPermissionState = remember { MutableStateFlow(BridgePermissionUiState.Granted) }
     val permissions by (permissionState ?: defaultPermissionState).collectAsStateWithLifecycle()
     val defaultBatteryState = remember { MutableStateFlow(BatteryUiState.Unrestricted) }
@@ -204,7 +205,10 @@ fun BridgeApp(
                 SettingsScreen(
                     state = state,
                     originsState = allowedOrigins,
+                    portState = portState,
                     navController = navController,
+                    onPortInputChange = viewModel::updatePortInput,
+                    onSavePort = viewModel::savePort,
                     onOriginInputChange = viewModel::updateOriginInput,
                     onCommitOrigin = viewModel::commitOriginInput,
                     onRemoveOrigin = viewModel::removeOrigin,
@@ -316,7 +320,7 @@ private fun HomeScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(20.dp),
+                .padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (permissions.localNetwork != PermissionUiStatus.GRANTED ||
@@ -704,7 +708,10 @@ private fun SettingsScreen(
     httpsContent: @Composable () -> Unit,
     state: BridgeUiState,
     originsState: AllowedOriginsUiState,
+    portState: PortUiState,
     navController: NavHostController,
+    onPortInputChange: (String) -> Unit,
+    onSavePort: () -> Unit,
     onOriginInputChange: (String) -> Unit,
     onCommitOrigin: () -> Unit,
     onRemoveOrigin: (String) -> Unit,
@@ -734,6 +741,60 @@ private fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("Red", style = MaterialTheme.typography.titleLarge)
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Puerto del bridge", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "HTTP y HTTPS usan este puerto. Si lo cambias, actualiza la URL en el POS.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = portState.input,
+                        onValueChange = onPortInputChange,
+                        modifier = Modifier.fillMaxWidth().testTag("bridge-port-input"),
+                        enabled = portState.initialized && !state.portSaving,
+                        singleLine = true,
+                        isError = portState.errorCode != null,
+                        label = { Text("Puerto") },
+                        supportingText = {
+                            Text(
+                                when (portState.errorCode) {
+                                    "port_required" -> "Escribe un puerto."
+                                    "invalid_port" -> "Usa un número entre 1 y 65535."
+                                    "https_reserved_port" ->
+                                        "El puerto ${portState.reservedPort} está reservado para descargar certificados."
+                                    else -> "Puerto actual: ${portState.persistedPort}"
+                                },
+                            )
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(onDone = {
+                            if (portState.canSave) onSavePort()
+                        }),
+                    )
+                    Button(
+                        enabled = portState.canSave && !state.portSaving,
+                        onClick = onSavePort,
+                        modifier = Modifier.testTag("save-bridge-port"),
+                    ) {
+                        Text(if (state.portSaving) "Guardando…" else "Guardar puerto")
+                    }
+                    state.portResultMessage?.let {
+                        Text(
+                            it,
+                            color = if (state.portResultIsError) {
+                                MaterialTheme.colorScheme.error
+                            } else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
             httpsContent()
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
@@ -856,7 +917,7 @@ private fun RuntimeCard(runtime: BridgeRuntimeState, port: Int) {
         BridgeRuntimeState.Stopped -> "Detenido" to false
         BridgeRuntimeState.Starting -> "Iniciando…" to false
         is BridgeRuntimeState.Running -> "Activo en el puerto $port" to false
-        is BridgeRuntimeState.Failed -> (if (runtime.reason.startsWith("https_")) httpsError(runtime.reason)
+        is BridgeRuntimeState.Failed -> (if (runtime.reason.startsWith("https_") || runtime.reason == "bridge_port_in_use") httpsError(runtime.reason)
             else "Error: ${runtime.reason}") to true
     }
     Card(

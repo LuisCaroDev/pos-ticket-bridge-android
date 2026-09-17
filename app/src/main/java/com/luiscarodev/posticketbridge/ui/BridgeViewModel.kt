@@ -5,12 +5,12 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.luiscarodev.posticketbridge.BridgeApplication
+import com.luiscarodev.posticketbridge.BuildConfig
 import com.luiscarodev.posticketbridge.bridge.BridgeForegroundService
 import com.luiscarodev.posticketbridge.bridge.BridgeRuntimeState
 import com.luiscarodev.posticketbridge.bridge.ConnectionUrl
 import com.luiscarodev.posticketbridge.bridge.ConnectionUrls
 import com.luiscarodev.posticketbridge.bridge.ConnectionKind
-import com.luiscarodev.posticketbridge.data.BRIDGE_PORT
 import com.luiscarodev.posticketbridge.domain.PairedBluetoothPrinter
 import com.luiscarodev.posticketbridge.domain.PrinterDefinition
 import com.luiscarodev.posticketbridge.domain.PrinterType
@@ -30,11 +30,14 @@ data class BridgeUiState(
     val runtime: BridgeRuntimeState = BridgeRuntimeState.Stopped,
     val token: String = "",
     val allowedOrigins: List<String> = emptyList(),
-    val port: Int = BRIDGE_PORT,
+    val port: Int = BuildConfig.DEFAULT_BRIDGE_PORT,
     val saving: Boolean = false,
     val resultMessage: String? = null,
+    val portSaving: Boolean = false,
+    val portResultMessage: String? = null,
+    val portResultIsError: Boolean = false,
     val connectionUrls: ConnectionUrls = ConnectionUrls(
-        primary = ConnectionUrl("http://127.0.0.1:$BRIDGE_PORT", ConnectionKind.LOCAL),
+        primary = ConnectionUrl("http://127.0.0.1:${BuildConfig.DEFAULT_BRIDGE_PORT}", ConnectionKind.LOCAL),
         alternatives = emptyList(),
     ),
     val printers: List<PrinterDefinition> = emptyList(),
@@ -62,6 +65,8 @@ private data class PrinterUiParts(
     val formFeedback: PrinterFormFeedback?,
 )
 
+private data class PortFeedback(val saving: Boolean, val message: String?, val isError: Boolean)
+
 class BridgeViewModel(
     application: Application,
     private val savedStateHandle: SavedStateHandle,
@@ -69,6 +74,9 @@ class BridgeViewModel(
     private val app = application as BridgeApplication
     private val saving = MutableStateFlow(false)
     private val resultMessage = MutableStateFlow<String?>(null)
+    private val portSaving = MutableStateFlow(false)
+    private val portResultMessage = MutableStateFlow<String?>(null)
+    private val portResultIsError = MutableStateFlow(false)
     private val pairedBluetooth = MutableStateFlow<List<PairedBluetoothPrinter>>(emptyList())
     private val printerBusy = MutableStateFlow(false)
     private val networkCandidates = MutableStateFlow<List<NetworkPrinterCandidate>>(emptyList())
@@ -82,14 +90,19 @@ class BridgeViewModel(
     private val mutableAllowedOriginsState = MutableStateFlow(
         savedStateHandle[ALLOWED_ORIGINS_STATE_KEY] ?: AllowedOriginsUiState(),
     )
+    private val mutablePortState = MutableStateFlow(
+        savedStateHandle[PORT_STATE_KEY] ?: PortUiState(),
+    )
     private var networkScan: Job? = null
 
     val printerEditState: StateFlow<PrinterEditUiState> = mutablePrinterEditState.asStateFlow()
     val allowedOriginsState: StateFlow<AllowedOriginsUiState> = mutableAllowedOriginsState.asStateFlow()
+    val portState: StateFlow<PortUiState> = mutablePortState.asStateFlow()
 
     init {
         viewModelScope.launch {
             app.settingsRepository.settings.collect { settings ->
+                app.connectionUrlRepository.updatePort(settings.port)
                 val current = mutableAllowedOriginsState.value
                 when {
                     !current.initialized && !current.dirty -> {
@@ -111,6 +124,12 @@ class BridgeViewModel(
                     !current.dirty && current.persistedOrigins != settings.allowedOrigins -> {
                         setAllowedOriginsState(AllowedOriginsUiState.fromPersisted(settings.allowedOrigins))
                     }
+                }
+                val currentPort = mutablePortState.value
+                if (!currentPort.initialized ||
+                    (!currentPort.dirty && currentPort.persistedPort != settings.port)
+                ) {
+                    setPortState(PortUiState.fromPersisted(settings.port, BuildConfig.ENROLLMENT_PORT))
                 }
             }
         }
@@ -148,7 +167,16 @@ class BridgeViewModel(
         )
     }
 
-    val uiState = combine(bridgeState, printerState, app.httpsRepository.state) { bridge, printer, https ->
+    private val portFeedback = combine(portSaving, portResultMessage, portResultIsError) { busy, message, error ->
+        PortFeedback(busy, message, error)
+    }
+
+    val uiState = combine(
+        bridgeState,
+        printerState,
+        app.httpsRepository.state,
+        portFeedback,
+    ) { bridge, printer, https, port ->
         val (settings, runtime, connectionUrls) = bridge
         BridgeUiState(
             runtime = runtime,
@@ -157,6 +185,9 @@ class BridgeViewModel(
             port = settings.port,
             saving = printer.saving,
             resultMessage = printer.message,
+            portSaving = port.saving,
+            portResultMessage = port.message,
+            portResultIsError = port.isError,
             connectionUrls = if (https.loaded && (https.enabled || https.transport == "stopped")) {
                 ConnectionUrls(ConnectionUrl(https.host, connectionUrls.primary.kind), emptyList())
             } else connectionUrls,
@@ -210,9 +241,52 @@ class BridgeViewModel(
         }
     }
 
+    fun updatePortInput(value: String) {
+        setPortState(mutablePortState.value.withInput(value))
+        portResultMessage.value = null
+    }
+
+    fun savePort() {
+        val draft = mutablePortState.value
+        val port = draft.parsedPort ?: return
+        if (!draft.canSave || portSaving.value) return
+        if (!BridgeForegroundService.hasRequiredLocalNetworkPermission(app)) {
+            portResultMessage.value = "Concede acceso a la red local para cambiar el puerto."
+            portResultIsError.value = true
+            return
+        }
+        viewModelScope.launch {
+            portSaving.value = true
+            portResultMessage.value = null
+            portResultIsError.value = false
+            runCatching {
+                BridgeForegroundService.start(app)
+                kotlinx.coroutines.withTimeout(30_000) { app.runtimeRepository.changePort(port) }
+            }.onSuccess {
+                setPortState(PortUiState.fromPersisted(port, BuildConfig.ENROLLMENT_PORT))
+                portResultMessage.value =
+                    "Puerto guardado. Actualiza la URL de conexión en el POS."
+            }.onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                portResultIsError.value = true
+                portResultMessage.value = when (error.message) {
+                    "bridge_port_in_use" -> "El puerto $port está ocupado. El bridge continúa en ${draft.persistedPort}."
+                    "https_reserved_port" -> "El puerto ${BuildConfig.ENROLLMENT_PORT} está reservado para certificados."
+                    else -> "No se pudo cambiar el puerto. El bridge continúa en ${draft.persistedPort}."
+                }
+            }
+            portSaving.value = false
+        }
+    }
+
     private fun setAllowedOriginsState(state: AllowedOriginsUiState) {
         mutableAllowedOriginsState.value = state
         savedStateHandle[ALLOWED_ORIGINS_STATE_KEY] = state
+    }
+
+    private fun setPortState(state: PortUiState) {
+        mutablePortState.value = state
+        savedStateHandle[PORT_STATE_KEY] = state
     }
 
     fun refreshConnectionUrls() {
@@ -415,5 +489,6 @@ class BridgeViewModel(
     private companion object {
         const val PRINTER_EDIT_STATE_KEY = "printer_edit_state"
         const val ALLOWED_ORIGINS_STATE_KEY = "allowed_origins_state"
+        const val PORT_STATE_KEY = "port_state"
     }
 }

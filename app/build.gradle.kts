@@ -63,6 +63,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("int", "DEFAULT_BRIDGE_PORT", "9977")
+        buildConfigField("int", "ENROLLMENT_PORT", "9978")
         httpsSettingNames.forEach { name ->
             val value = providers.environmentVariable(name).orNull
                 ?: providers.gradleProperty(name).orNull ?: httpsFileValues[name].orEmpty()
@@ -85,6 +87,8 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            buildConfigField("int", "DEFAULT_BRIDGE_PORT", "9987")
+            buildConfigField("int", "ENROLLMENT_PORT", "9988")
         }
         release {
             signingConfig = signingConfigs.findByName("release")
@@ -94,6 +98,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "src/main/keepRules/rules.keep",
             )
+        }
+        create("releaseCheck") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".releasecheck"
+            versionNameSuffix = "-releasecheck"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+            buildConfigField("int", "DEFAULT_BRIDGE_PORT", "9997")
+            buildConfigField("int", "ENROLLMENT_PORT", "9998")
         }
     }
     compileOptions {

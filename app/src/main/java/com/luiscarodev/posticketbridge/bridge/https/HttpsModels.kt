@@ -1,10 +1,11 @@
 package com.luiscarodev.posticketbridge.bridge.https
 
+import com.luiscarodev.posticketbridge.BuildConfig
 import kotlinx.serialization.Serializable
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
-const val ENROLLMENT_PORT = 9978
+val ENROLLMENT_PORT: Int = BuildConfig.ENROLLMENT_PORT
 const val ENROLLMENT_DURATION_MS = 600_000L
 
 @Serializable

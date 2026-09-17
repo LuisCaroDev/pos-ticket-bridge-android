@@ -46,6 +46,7 @@ class BridgeRoutesTest {
     private val settings = BridgeSettings(
         token = "secret",
         allowedOrigins = listOf("https://pos.example.com"),
+        port = 9977,
     )
     private val configuredPrinters = listOf(
         PrinterDefinition("caja", "Caja", PrinterType.NETWORK, 80, true, true, host = "127.0.0.1", port = 9100),

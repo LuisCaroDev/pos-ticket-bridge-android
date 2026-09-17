@@ -27,3 +27,45 @@
 # listener does not request client certificates; LocalBridgeClient uses JSSE.
 -dontwarn javax.naming.ldap.LdapName
 -dontwarn javax.naming.ldap.Rdn
+
+# Netty discovers shared handlers through an inherited runtime annotation. R8 full
+# mode needs both the annotation and annotated classes retained, otherwise the
+# listener binds but subsequent connections reject NettyChannelInitializer.
+-keepattributes RuntimeVisibleAnnotations
+-keep @interface io.netty.channel.ChannelHandler$Sharable
+-keep,allowshrinking,allowobfuscation @io.netty.channel.ChannelHandler$Sharable class *
+
+# ChannelHandlerMask looks up callbacks by their original names with getMethod.
+# Keep their runtime Skip annotations and signatures on handlers (including Ktor).
+-keep @interface io.netty.channel.ChannelHandlerMask$Skip
+-keepclassmembers class * implements io.netty.channel.ChannelHandler {
+    public *** *(io.netty.channel.ChannelHandlerContext, ...);
+}
+
+# Netty's ReflectiveChannelFactory invokes this constructor through Class.getConstructor().
+# R8 cannot infer the call through Ktor's selected channel class.
+-keep,allowoptimization,allowobfuscation class io.netty.channel.socket.nio.NioServerSocketChannel {
+    public <init>();
+}
+
+# ResourceLeakDetector.addExclusions validates these method names reflectively.
+-keepclassmembers class io.netty.buffer.AbstractByteBufAllocator {
+    *** toLeakAwareBuffer(...);
+}
+-keepclassmembers class io.netty.buffer.AdvancedLeakAwareByteBuf {
+    *** touch(...);
+    *** recordLeakNonRefCountingOperation(...);
+}
+-keepclassmembers class io.netty.util.ReferenceCountUtil {
+    *** touch(...);
+}
+
+# Android uses the MethodHandles fallback; field updaters also resolve names
+# through Netty's generic cls() helper, which obscures the target from R8.
+-keepclassmembers class io.netty.util.concurrent.ConcurrentSkipListIntObjMultimap {
+    private static void acquireFenceFallback();
+    volatile <fields>;
+}
+-keepclassmembers class io.netty.util.concurrent.ConcurrentSkipListIntObjMultimap$* {
+    volatile <fields>;
+}

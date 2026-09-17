@@ -71,7 +71,7 @@ Si esa ruta no está disponible, usar fixtures Android versionados y documentar 
 
 ### HTTPS local
 
-- El transporte seleccionable HTTP/HTTPS conserva el puerto `9977`, las cuatro
+- El transporte seleccionable HTTP/HTTPS usa el puerto persistido por la app, las cuatro
   rutas V1, `x-agent-token`, payloads y respuestas síncronas existentes.
 - Con HTTPS activo, `suggestedHosts` en `/health` contiene únicamente la IPv4
   certificada con esquema `https`. Los clientes deben usar esa URL, sin sustituirla
@@ -79,7 +79,8 @@ Si esa ruta no está disponible, usar fixtures Android versionados y documentar 
 - CORS incluye las variantes HTTPS de localhost/127.0.0.1 y refleja
   `Access-Control-Allow-Private-Network: true` en preflight que lo solicite sólo si
   el origen está autorizado o ausente, igual que desktop.
-- Descarga temporal separada en `9978`: `GET`/`HEAD` de `/setup/android.cer`,
+- Descarga temporal separada en el puerto reservado por variante (`9978` release,
+  `9988` debug y `9998` releaseCheck): `GET`/`HEAD` de `/setup/android.cer`,
   `/setup/windows.cer`, `/setup/macos.cer` y `/setup/ios.mobileconfig`. Sólo material
   público, misma subred, `no-store`, `nosniff`, diez minutos por defecto (configurable con `POS_BRIDGE_HTTPS_SETUP_TTL_MS`). No contiene token ni
   permite impresión. La CA y el nombre del perfil terminan en `mobile`.

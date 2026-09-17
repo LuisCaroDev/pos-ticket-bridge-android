@@ -222,6 +222,7 @@ private fun CopyHttpsValue(label: String, value: String) {
 
 private fun formatDate(value: Long) = DateFormat.getDateInstance().format(Date(value))
 internal fun httpsError(code: String): String = when (code) {
+    "bridge_port_in_use" -> "El puerto configurado está ocupado. Elige otro puerto en Ajustes."
     "https_select_interface" -> "Selecciona una red disponible para HTTPS."
     "https_interface_missing" -> "La red seleccionada ya no está disponible. Conéctala de nuevo o elige otra en Ajustes."
     "https_ca_expired" -> "La CA venció o la fecha del teléfono es incorrecta. Revisa la fecha o restablece HTTPS."

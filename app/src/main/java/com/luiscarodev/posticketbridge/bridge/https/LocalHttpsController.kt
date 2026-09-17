@@ -10,11 +10,13 @@ class LocalHttpsController(
     private val port: Int,
     private val networks: () -> List<HttpsNetwork> = ::localHttpsNetworks,
     private val enrollment: HttpsEnrollmentServer = HttpsEnrollmentServer(),
+    private val enrollmentPort: Int = ENROLLMENT_PORT,
     private val setup: HttpsSetupConfiguration = HttpsSetupConfiguration.bundled,
 ) {
     private var record: HttpsRecord? = null
     private var server: BridgeHttpServer? = null
     private var session: EnrollmentSession? = null
+    private var lastFailure: String? = null
 
     fun restart() = guarded {
         val previous = record ?: store.read()
@@ -38,7 +40,7 @@ class LocalHttpsController(
                 stopEnrollment()
                 val expiresAt = System.currentTimeMillis() + setup.durationMs
                 enrollment.start(network, current.material!!.ca, expiresAt)
-                session = EnrollmentSession("http://${network.address}:$ENROLLMENT_PORT/setup/${action.os.filename}", expiresAt, action.os)
+                session = EnrollmentSession("http://${network.address}:$enrollmentPort/setup/${action.os.filename}", expiresAt, action.os)
                 publish()
             }
             HttpsAction.StopEnrollment -> { stopEnrollment(); publish() }
@@ -50,7 +52,7 @@ class LocalHttpsController(
     fun reconcile() = guarded {
         if (session?.let { System.currentTimeMillis() >= it.expiresAt } == true) stopEnrollment()
         val current = record ?: return@guarded
-        if (current.enabled) {
+        if (current.enabled || server == null) {
             try { transition(prepare(current)) }
             catch (error: Exception) {
                 stopEnrollment()
@@ -108,15 +110,20 @@ class LocalHttpsController(
 
     private fun stopEnrollment() { enrollment.stop(); session = null }
     fun shutdown() { stopEnrollment(); server?.stop(); server = null; publish() }
+    fun publishCurrent() { publish() }
 
     private fun guarded(block: () -> Unit) {
         try { block() } catch (error: Exception) {
-            publish(error.message?.takeIf { it.startsWith("https_") } ?: "https_operation_failed")
+            lastFailure = if (generateSequence<Throwable>(error) { it.cause }.any { it is java.net.BindException })
+                "bridge_port_in_use"
+            else error.message?.takeIf { it.startsWith("https_") } ?: "https_operation_failed"
+            publish(lastFailure)
             throw error
         }
     }
 
     private fun publish(error: String? = null) {
+        if (server != null && error == null) lastFailure = null
         val current = record
         val material = current?.material
         val transport = if (server == null) "stopped" else if (current?.enabled == true) "https" else "http"
@@ -130,7 +137,7 @@ class LocalHttpsController(
             fingerprint = material?.let { runCatching { HttpsCertificates.fingerprint(it.ca) }.getOrNull() },
             expiresAt = material?.let { runCatching { HttpsCertificates.certificate(it.certificate).notAfter.time }.getOrNull() },
             caExpiresAt = material?.let { runCatching { HttpsCertificates.certificate(it.ca).notAfter.time }.getOrNull() },
-            enrollment = session, error = error,
+            enrollment = session, error = error ?: lastFailure,
         ))
     }
 }

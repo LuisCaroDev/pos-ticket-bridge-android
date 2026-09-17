@@ -12,24 +12,31 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class BridgeSettingsPersistenceTest {
     @Test
-    fun tokenAndMultipleOriginsSurviveRepositoryRecreation() = runBlocking {
+    fun tokenOriginsAndPortSurviveRepositoryRecreation() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val firstRepository = BridgeSettingsRepository(context)
         val first = firstRepository.getOrCreate()
-        firstRepository.saveAllowedOrigins(
-            listOf(
-                "https://pos.example.com",
-                "http://localhost:5173",
-                "https://pos.example.com",
-            ),
-        )
+        try {
+            firstRepository.saveAllowedOrigins(
+                listOf(
+                    "https://pos.example.com",
+                    "http://localhost:5173",
+                    "https://pos.example.com",
+                ),
+            )
+            firstRepository.savePort(12077)
 
-        val restored = BridgeSettingsRepository(context).getOrCreate()
-        assertTrue(first.token.isNotEmpty())
-        assertEquals(first.token, restored.token)
-        assertEquals(
-            listOf("https://pos.example.com", "http://localhost:5173"),
-            restored.allowedOrigins,
-        )
+            val restored = BridgeSettingsRepository(context).getOrCreate()
+            assertTrue(first.token.isNotEmpty())
+            assertEquals(first.token, restored.token)
+            assertEquals(
+                listOf("https://pos.example.com", "http://localhost:5173"),
+                restored.allowedOrigins,
+            )
+            assertEquals(12077, restored.port)
+        } finally {
+            firstRepository.savePort(first.port)
+            firstRepository.saveAllowedOrigins(first.allowedOrigins)
+        }
     }
 }

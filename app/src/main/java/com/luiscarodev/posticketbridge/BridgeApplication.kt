@@ -4,7 +4,6 @@ import android.app.Application
 import com.luiscarodev.posticketbridge.bridge.BridgeRuntimeRepository
 import com.luiscarodev.posticketbridge.bridge.ConnectionUrlRepository
 import com.luiscarodev.posticketbridge.bridge.LocalBridgeClient
-import com.luiscarodev.posticketbridge.data.BRIDGE_PORT
 import com.luiscarodev.posticketbridge.data.BridgeSettingsRepository
 import com.luiscarodev.posticketbridge.data.PrinterDatabase
 import com.luiscarodev.posticketbridge.data.PermissionStateRepository
@@ -21,7 +20,9 @@ class BridgeApplication : Application() {
     val settingsRepository by lazy { BridgeSettingsRepository(applicationContext) }
     val permissionStateRepository by lazy { PermissionStateRepository(applicationContext) }
     val runtimeRepository by lazy { BridgeRuntimeRepository() }
-    val connectionUrlRepository by lazy { ConnectionUrlRepository(applicationContext, BRIDGE_PORT) }
+    val connectionUrlRepository by lazy {
+        ConnectionUrlRepository(applicationContext, BuildConfig.DEFAULT_BRIDGE_PORT)
+    }
     val httpsRepository by lazy { com.luiscarodev.posticketbridge.bridge.https.HttpsRepository() }
     val localBridgeClient by lazy { LocalBridgeClient(settingsRepository, httpsRepository) }
     val printerDatabase by lazy { PrinterDatabase.create(applicationContext) }

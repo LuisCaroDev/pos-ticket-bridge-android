@@ -25,7 +25,7 @@ class HttpsUiTest {
             POSTicketBridgeTheme {
                 HttpsSetupScreen(status.value, false, null, {}, { os ->
                     status.value = status.value.copy(enrollment = EnrollmentSession(
-                        "http://192.168.1.10:9978/setup/${os.filename}", System.currentTimeMillis() + setup.durationMs, os))
+                        "http://192.168.1.10:${BuildConfig.ENROLLMENT_PORT}/setup/${os.filename}", System.currentTimeMillis() + setup.durationMs, os))
                 }, {}, setup)
             }
         }
@@ -55,14 +55,14 @@ class HttpsUiTest {
             POSTicketBridgeTheme {
                 if (visible.value) HttpsSetupScreen(status.value, false, null, { visible.value = false }, { os ->
                     status.value = status.value.copy(enrollment = EnrollmentSession(
-                        "http://192.168.1.10:9978/setup/${os.filename}", System.currentTimeMillis() + ENROLLMENT_DURATION_MS, os))
+                        "http://192.168.1.10:${BuildConfig.ENROLLMENT_PORT}/setup/${os.filename}", System.currentTimeMillis() + ENROLLMENT_DURATION_MS, os))
                 }, { stops++; status.value = status.value.copy(enrollment = null) })
             }
         }
         compose.onNodeWithText("iPhone / iPad").performClick()
         compose.onNodeWithText("Continuar").performScrollTo().performClick()
         compose.onNodeWithText("Escanea desde iPhone / iPad").assertExists()
-        compose.onNodeWithText("http://192.168.1.10:9978/setup/ios.mobileconfig").assertExists()
+        compose.onNodeWithText("http://192.168.1.10:${BuildConfig.ENROLLMENT_PORT}/setup/ios.mobileconfig").assertExists()
         compose.waitUntil(5_000) {
             compose.onAllNodesWithContentDescription("QR para descargar la CA pública POS Ticket Bridge mobile")
                 .fetchSemanticsNodes().isNotEmpty()

@@ -30,10 +30,11 @@ data class ConnectionUrls(
     val alternatives: List<ConnectionUrl>,
 )
 
-class ConnectionUrlRepository(context: Context, private val port: Int) {
+class ConnectionUrlRepository(context: Context, initialPort: Int) {
     private val connectivityManager =
         context.getSystemService(ConnectivityManager::class.java)
     private val networkSnapshots = ConcurrentHashMap<Network, NetworkSnapshot>()
+    @Volatile private var port = initialPort
     private val mutableUrls = MutableStateFlow(prioritizeConnectionUrls(emptyList(), port))
     val urls: StateFlow<ConnectionUrls> = mutableUrls.asStateFlow()
 
@@ -70,6 +71,12 @@ class ConnectionUrlRepository(context: Context, private val port: Int) {
 
     fun refresh() {
         mutableUrls.value = resolve()
+    }
+
+    fun updatePort(port: Int) {
+        if (this.port == port) return
+        this.port = port
+        refresh()
     }
 
     private fun resolve(): ConnectionUrls {

@@ -37,8 +37,9 @@ Para cambios en comportamiento HTTP o payloads compartidos, consultar también [
   no puede arrancar ni reiniciarse sin `ACCESS_LOCAL_NETWORK` concedido.
 - El runtime publica `Starting`, `Running`, `Failed` y `Stopped` mediante un
   repositorio de aplicación con `StateFlow`.
-- DataStore conserva el token y una lista de múltiples orígenes CORS; el puerto
-  permanece fijo en `9977`.
+- DataStore conserva el token, el puerto y una lista de múltiples orígenes CORS.
+  Las instalaciones nuevas usan `9977` en release, `9987` en debug y `9997` en
+  releaseCheck; cada instalación puede cambiarlo desde Ajustes.
 - `BridgeHttpServer` aísla Ktor de las rutas. Las operaciones síncronas generan
   ESC/POS y escriben por TCP, Bluetooth Classic o USB Host; no existe aún cola durable.
 - Room conserva múltiples impresoras y respalda el CRUD de la app. DataStore
@@ -161,6 +162,12 @@ Los paquetes iniciales viven bajo el namespace configurado y se organizan por re
 - El servicio se ejecuta inicialmente en el proceso principal. El arranque al iniciar el dispositivo es una opción de configuración, no una obligación implícita.
 - El estado de salud se publica mediante un repositorio de alcance de aplicación con `StateFlow`.
 - Inicio y parada son idempotentes. Sockets, interfaces USB, conexiones Bluetooth y scopes de corrutinas se liberan de forma determinista.
+- La notificación ofrece «Detener» mediante un PendingIntent explícito e inmutable
+  al servicio no exportado. Retira la notificación y termina el servicio con
+  `START_NOT_STICKY`; el cierre libera HTTP/HTTPS y la descarga temporal de CA.
+  El arranque automático de la actividad ocurre en `onStart`, no en `onResume`,
+  para que cerrar el panel de notificaciones no deshaga la parada. Volver a abrir
+  la app desde segundo plano inicia de nuevo el bridge conservando su configuración.
 
 ### Datos y concurrencia
 
@@ -201,7 +208,8 @@ POST /print
 
 ### Motor HTTP
 
-El motor queda detrás de `BridgeHttpServer`. Netty sirve HTTP o HTTPS en `9977`;
+El motor queda detrás de `BridgeHttpServer`. Netty sirve HTTP o HTTPS en el puerto
+persistido;
 CIO 3.5.2 no admite TLS y se conserva únicamente para la descarga temporal de la
 CA pública. Netty usa JSSE de Android, TLS 1.2/1.3 según disponibilidad, grupos de
 hilos acotados y HTTP/1.1. No se empaqueta OpenSSL nativo ni se escribe un parser HTTP.
@@ -227,7 +235,7 @@ hilos acotados y HTTP/1.1. No se empaqueta OpenSSL nativo ni se escribe un parse
   la validación de hostname; no depende de instalar confianza en el sistema.
 - El asistente Material ocupa una pantalla con dos pasos: sistema operativo y
   descarga/instalación. El QR contiene sólo la URL pública de la CA; el listener
-  HTTP `9978` se abre durante diez minutos por defecto, restringe la subred y se cierra al salir,
+  HTTP de inscripción se abre durante diez minutos por defecto, restringe la subred y se cierra al salir,
   cambiar de sistema/red, vencer o detener el servicio. iOS recibe `.mobileconfig`;
   Android, Windows y macOS reciben `.cer` DER.
 - La instalación de confianza de una CA en Android es manual desde Ajustes. Servir
@@ -242,6 +250,37 @@ hilos acotados y HTTP/1.1. No se empaqueta OpenSSL nativo ni se escribe un parse
 La validación de distribución debe incluir R8 y solicitudes TLS verificadas en
 hardware, además de pantalla apagada, reinicio y cambios de Wi-Fi/hotspot. La firma
 release requiere el keystore privado configurado en la máquina.
+
+Netty crea `NioServerSocketChannel` por reflexión: la regla R8 conserva su
+constructor público sin argumentos, además de los métodos que
+`ResourceLeakDetector.addExclusions` busca por nombre en los allocators y
+utilidades de buffers, y el fallback de `MethodHandles`/field updaters de
+`ConcurrentSkipListIntObjMultimap` usado en Android. Compilar no basta para validar esta ruta;
+hay que arrancar la APK optimizada y consultar `/health` en hardware. La variante
+`releaseCheck` hereda R8 y reducción de recursos de release, usa firma debug e ID
+`.releasecheck` para reproducir problemas sin reemplazar producción. Release,
+debug y releaseCheck usan por defecto pares de puertos separados (`9977/9978`,
+`9987/9988` y `9997/9998`) para poder ejecutarse a la vez.
+Los fallos de arranque se registran con la etiqueta `BridgeRuntime`. El runtime
+conserva el error mientras el listener esté detenido, informa conflictos de puerto
+y reintenta también HTTP durante la reconciliación periódica.
+
+Cambiar el puerto desde Ajustes valida el rango `1..65535` y excluye el puerto de
+inscripción de la variante. El servicio abre primero el listener candidato; sólo
+después persiste el valor y cierra el listener anterior. Un fallo de enlace o de
+persistencia conserva el puerto y listener previos. La operación comparte el mutex
+de las transiciones HTTPS, cierra cualquier descarga temporal activa y conserva la
+CA y el certificado. La UI recuerda que debe actualizarse la URL configurada en el POS.
+
+R8 también debe conservar la anotación heredada `ChannelHandler.Sharable` y las
+clases anotadas, además de los nombres de callbacks que `ChannelHandlerMask`
+resuelve por reflexión y su anotación `Skip`. Sin ello, el listener puede aparecer
+activo y aceptar TCP sin responder HTTP; conexiones posteriores fallan con
+`NettyChannelInitializer is not a @Sharable handler`. La verificación de release
+incluye varias conexiones independientes, no sólo arrancar el servicio. Ejecutar
+`scripts/test-release-endpoints.ps1 -BaseUrl http://<IP>:9977` contra la APK
+optimizada; también admite HTTPS con una CA confiada por el cliente. Comprueba
+health repetido, autenticación de las tres rutas POST y preflight sin imprimir.
 
 ## Verificación
 
