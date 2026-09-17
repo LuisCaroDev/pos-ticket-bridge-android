@@ -87,15 +87,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        refreshPermissionState()
-        refreshBatteryState()
+    override fun onStart() {
+        super.onStart()
         if (hasLocalNetworkPermission()) {
             BridgeForegroundService.start(this)
         } else {
             BridgeForegroundService.stop(this)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshPermissionState()
+        refreshBatteryState()
+        // Closing the notification shade must not undo its Stop action.
+        if (!hasLocalNetworkPermission()) BridgeForegroundService.stop(this)
     }
 
     private fun requestLocalNetworkPermission() {

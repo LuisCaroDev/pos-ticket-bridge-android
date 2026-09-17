@@ -4,4 +4,5 @@
     <string name="bridge_starting">Iniciando bridge…</string>
     <string name="bridge_running">Bridge activo en el puerto %1$d</string>
     <string name="bridge_failed">No se pudo iniciar el bridge</string>
+    <string name="bridge_stop">Detener</string>
 </resources>

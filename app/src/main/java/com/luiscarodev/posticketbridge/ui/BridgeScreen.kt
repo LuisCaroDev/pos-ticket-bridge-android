@@ -856,7 +856,7 @@ private fun RuntimeCard(runtime: BridgeRuntimeState, port: Int) {
         BridgeRuntimeState.Stopped -> "Detenido" to false
         BridgeRuntimeState.Starting -> "Iniciando…" to false
         is BridgeRuntimeState.Running -> "Activo en el puerto $port" to false
-        is BridgeRuntimeState.Failed -> (if (runtime.reason.startsWith("https_")) httpsError(runtime.reason)
+        is BridgeRuntimeState.Failed -> (if (runtime.reason.startsWith("https_") || runtime.reason == "bridge_port_in_use") httpsError(runtime.reason)
             else "Error: ${runtime.reason}") to true
     }
     Card(

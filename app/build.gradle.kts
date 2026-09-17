@@ -95,6 +95,13 @@ android {
                 "src/main/keepRules/rules.keep",
             )
         }
+        create("releaseCheck") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".releasecheck"
+            versionNameSuffix = "-releasecheck"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

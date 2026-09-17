@@ -76,6 +76,13 @@ class BridgeForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            destroyed = true
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (destroyed) return START_NOT_STICKY
         val restart = intent?.action == ACTION_RESTART
         if (restart || controller == null) {
             transitionJob = scope.launch {
@@ -120,6 +127,7 @@ class BridgeForegroundService : Service() {
             }
             publishRuntime()
         }.onFailure { error ->
+            android.util.Log.e("BridgeRuntime", "Server startup failed", error)
             val reason = error.message ?: error::class.java.simpleName
             app.runtimeRepository.update(BridgeRuntimeState.Failed(reason))
             updateNotification(getString(R.string.bridge_failed))
@@ -137,7 +145,8 @@ class BridgeForegroundService : Service() {
         if (destroyed) return
         val status = app.httpsRepository.state.value
         if (status.transport == "stopped") {
-            app.runtimeRepository.update(BridgeRuntimeState.Failed(status.error ?: "bridge_not_running"))
+            val previous = app.runtimeRepository.state.value as? BridgeRuntimeState.Failed
+            app.runtimeRepository.update(BridgeRuntimeState.Failed(status.error ?: previous?.reason ?: "bridge_not_running"))
             updateNotification(getString(R.string.bridge_failed))
         } else {
             app.runtimeRepository.update(BridgeRuntimeState.Running(listOf(status.host), com.luiscarodev.posticketbridge.data.BRIDGE_PORT))
@@ -158,6 +167,7 @@ class BridgeForegroundService : Service() {
     }
 
     private fun updateNotification(text: String) {
+        if (destroyed) return
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, notification(text))
     }
@@ -169,11 +179,16 @@ class BridgeForegroundService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val stop = PendingIntent.getService(
+            this, 1, Intent(this, BridgeForegroundService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setContentIntent(openApp)
+            .addAction(0, getString(R.string.bridge_stop), stop)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -194,6 +209,8 @@ class BridgeForegroundService : Service() {
         private const val NOTIFICATION_ID = 9977
         private const val ACTION_RESTART =
             "com.luiscarodev.posticketbridge.action.RESTART_BRIDGE"
+        private const val ACTION_STOP =
+            "com.luiscarodev.posticketbridge.action.STOP_BRIDGE"
 
         fun start(context: Context) {
             if (!hasRequiredLocalNetworkPermission(context)) return

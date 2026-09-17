@@ -27,3 +27,31 @@
 # listener does not request client certificates; LocalBridgeClient uses JSSE.
 -dontwarn javax.naming.ldap.LdapName
 -dontwarn javax.naming.ldap.Rdn
+
+# Netty's ReflectiveChannelFactory invokes this constructor through Class.getConstructor().
+# R8 cannot infer the call through Ktor's selected channel class.
+-keep,allowoptimization,allowobfuscation class io.netty.channel.socket.nio.NioServerSocketChannel {
+    public <init>();
+}
+
+# ResourceLeakDetector.addExclusions validates these method names reflectively.
+-keepclassmembers class io.netty.buffer.AbstractByteBufAllocator {
+    *** toLeakAwareBuffer(...);
+}
+-keepclassmembers class io.netty.buffer.AdvancedLeakAwareByteBuf {
+    *** touch(...);
+    *** recordLeakNonRefCountingOperation(...);
+}
+-keepclassmembers class io.netty.util.ReferenceCountUtil {
+    *** touch(...);
+}
+
+# Android uses the MethodHandles fallback; field updaters also resolve names
+# through Netty's generic cls() helper, which obscures the target from R8.
+-keepclassmembers class io.netty.util.concurrent.ConcurrentSkipListIntObjMultimap {
+    private static void acquireFenceFallback();
+    volatile <fields>;
+}
+-keepclassmembers class io.netty.util.concurrent.ConcurrentSkipListIntObjMultimap$* {
+    volatile <fields>;
+}

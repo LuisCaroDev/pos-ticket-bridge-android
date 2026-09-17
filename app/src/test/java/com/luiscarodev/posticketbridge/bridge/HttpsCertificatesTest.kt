@@ -5,6 +5,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HttpsCertificatesTest {
+    @Test fun httpRecoversAfterPortIsFreedAndKeepsFailureUntilThen() {
+        var occupied = true
+        val repo = HttpsRepository()
+        val store = object : HttpsStore {
+            override fun read() = HttpsRecord()
+            override fun write(record: HttpsRecord) = Unit
+        }
+        val controller = LocalHttpsController(store, repo, { object : BridgeHttpServer {
+            override fun start() { if (occupied) throw java.net.BindException("Address already in use") }
+            override fun stop() = Unit
+        } }, 9977, { emptyList() })
+        try {
+            assertTrue(runCatching { controller.restart() }.isFailure)
+            assertEquals("bridge_port_in_use", repo.state.value.error)
+            assertTrue(runCatching { controller.reconcile() }.isFailure)
+            assertEquals("bridge_port_in_use", repo.state.value.error)
+            occupied = false
+            controller.reconcile()
+            assertEquals("http", repo.state.value.transport)
+            assertNull(repo.state.value.error)
+        } finally { controller.shutdown() }
+    }
+
     @Test fun caIsUniqueMobileAndSurvivesIpChangesAndRenewal() {
         val now = System.currentTimeMillis()
         val first = HttpsCertificates.prepare(null, "192.168.1.10", now)

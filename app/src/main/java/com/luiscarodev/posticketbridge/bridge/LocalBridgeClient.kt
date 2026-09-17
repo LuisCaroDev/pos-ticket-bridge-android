@@ -15,7 +15,7 @@ class LocalBridgeClient(
     suspend fun testPrinter(printerId: String) = withContext(Dispatchers.IO) {
         val config = settings.getOrCreate()
         val status = https.state.value
-        check(status.transport != "stopped") { "bridge_not_running" }
+        check(status.transport != "stopped") { status.error ?: "bridge_not_running" }
         val host = if (status.transport == "https") status.host else "http://127.0.0.1:${config.port}"
         val connection = URL("$host/test/$printerId")
             .openConnection() as HttpURLConnection

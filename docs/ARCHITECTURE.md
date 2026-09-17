@@ -161,6 +161,12 @@ Los paquetes iniciales viven bajo el namespace configurado y se organizan por re
 - El servicio se ejecuta inicialmente en el proceso principal. El arranque al iniciar el dispositivo es una opción de configuración, no una obligación implícita.
 - El estado de salud se publica mediante un repositorio de alcance de aplicación con `StateFlow`.
 - Inicio y parada son idempotentes. Sockets, interfaces USB, conexiones Bluetooth y scopes de corrutinas se liberan de forma determinista.
+- La notificación ofrece «Detener» mediante un PendingIntent explícito e inmutable
+  al servicio no exportado. Retira la notificación y termina el servicio con
+  `START_NOT_STICKY`; el cierre libera HTTP/HTTPS y la descarga temporal de CA.
+  El arranque automático de la actividad ocurre en `onStart`, no en `onResume`,
+  para que cerrar el panel de notificaciones no deshaga la parada. Volver a abrir
+  la app desde segundo plano inicia de nuevo el bridge conservando su configuración.
 
 ### Datos y concurrencia
 
@@ -242,6 +248,19 @@ hilos acotados y HTTP/1.1. No se empaqueta OpenSSL nativo ni se escribe un parse
 La validación de distribución debe incluir R8 y solicitudes TLS verificadas en
 hardware, además de pantalla apagada, reinicio y cambios de Wi-Fi/hotspot. La firma
 release requiere el keystore privado configurado en la máquina.
+
+Netty crea `NioServerSocketChannel` por reflexión: la regla R8 conserva su
+constructor público sin argumentos, además de los métodos que
+`ResourceLeakDetector.addExclusions` busca por nombre en los allocators y
+utilidades de buffers, y el fallback de `MethodHandles`/field updaters de
+`ConcurrentSkipListIntObjMultimap` usado en Android. Compilar no basta para validar esta ruta;
+hay que arrancar la APK optimizada y consultar `/health` en hardware. La variante
+`releaseCheck` hereda R8 y reducción de recursos de release, usa firma debug e ID
+`.releasecheck` para reproducir problemas sin reemplazar producción. Sólo debe
+ejecutarse un bridge a la vez en el teléfono porque comparten el puerto `9977`.
+Los fallos de arranque se registran con la etiqueta `BridgeRuntime`. El runtime
+conserva el error mientras el listener esté detenido, informa conflictos de puerto
+y reintenta también HTTP durante la reconciliación periódica.
 
 ## Verificación
 
